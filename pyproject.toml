@@ -1,0 +1,12 @@
+[project]
+name = "practice-fastapi"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi[standard]>=0.115.12",
+    "pinecone>=6.0.2",
+    "pymupdf>=1.25.5",
+    "sentence-transformers>=4.1.0",
+]
