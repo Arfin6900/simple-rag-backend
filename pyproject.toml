@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi[standard]>=0.115.12",
+    "litellm>=1.66.3",
+    "motor>=3.7.0",
     "pinecone>=6.0.2",
     "pymupdf>=1.25.5",
     "sentence-transformers>=4.1.0",

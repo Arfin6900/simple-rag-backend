@@ -7,12 +7,6 @@ index_name = 'docker-dark'
 
 
 def init_index():
-    if index_name not in pc.list_indexes():
-        pc.create_index(
-            index_name,
-            dimension=384,
-            spec=ServerlessSpec(cloud="aws", region="us-east-1")
-        )
     return pc.Index(index_name)
 
 
@@ -29,20 +23,33 @@ def split_text_into_chunks(text: str, chunk_size: int = 300, overlap: int = 20):
     return chunks
 
 
-def embed_and_store_text(text: str):
+def embed_and_store_text(text: str, document_name: str):
     index = init_index()
 
-    # Split into word-based chunks
+    # Split text into chunks
     chunks = split_text_into_chunks(text)
 
+    # Generate embeddings
     embeddings = model.encode(chunks)
+
+    # Prepare data for upserting with document name
     to_upsert = [
-        (f'chunk-{i}', emb.tolist(), {'text': chunk})
+        (
+            f'{document_name}-chunk-{i}',  # Unique ID using document name
+            emb.tolist(),
+            {
+                'text': chunk,
+                'document_name': document_name  # Metadata for filtering
+            }
+        )
         for i, (chunk, emb) in enumerate(zip(chunks, embeddings))
     ]
 
+    # Upsert to Pinecone index
     index.upsert(vectors=to_upsert)
+
     return len(to_upsert)
+
 
 
 def query_embeddings(query: str, top_k: int = 3):
@@ -53,3 +60,13 @@ def query_embeddings(query: str, top_k: int = 3):
         {"score": match['score'], "text": match['metadata']['text']}
         for match in result['matches']
     ]
+
+def get_chunks_by_document_name(document_name: str):
+    index = pc.Index(index_name)
+    # Query the index for all chunks associated with the document name
+    response = index.query(
+        top_k=1000,
+        filter={"document_name": document_name},
+        include_metadata=True
+    )
+    return [match["metadata"] for match in response["matches"]]
