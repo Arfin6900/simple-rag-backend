@@ -57,16 +57,26 @@ def query_embeddings(query: str, top_k: int = 3):
     query_vector = model.encode([query])[0].tolist()
     result = index.query(vector=query_vector, top_k=top_k, include_metadata=True)
     return [
-        {"score": match['score'], "text": match['metadata']['text']}
+        {"score": match['score'], "text": match['metadata']['text'], "document_name": match['metadata']['document_name'], "vector_id": match['id']}
         for match in result['matches']
     ]
 
 def get_chunks_by_document_name(document_name: str):
     index = pc.Index(index_name)
+    # Create a dummy vector for querying (all zeros)
+    dummy_vector = [0.0] * 384  # 384 is the dimension of the all-MiniLM-L6-v2 model
     # Query the index for all chunks associated with the document name
     response = index.query(
+        vector=dummy_vector,
         top_k=1000,
         filter={"document_name": document_name},
         include_metadata=True
     )
-    return [match["metadata"] for match in response["matches"]]
+    return [
+        {
+            "text": match["metadata"]["text"],
+            "document_name": match["metadata"]["document_name"],
+            "vector_id": match["id"]
+        }
+        for match in response["matches"]
+    ]
