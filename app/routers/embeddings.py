@@ -3,10 +3,10 @@ from pydantic import BaseModel
 from typing import Optional
 from app.services.embedding_handler import embed_and_store_text, query_embeddings
 from app.services.pdf_extractor import extract_text_from_pdf
-from app.services.embedding_handler import get_chunks_by_document_name
+from app.services.embedding_handler import get_chunks_by_document_name, delete_document_from_pinecone
 from app.database import documents_collection
 from datetime import datetime
-from app.llm_handler.llm_handler import summarize_text, query_response_by_content
+from app.llm_handler.llm_handler import summarize_text, query_response_by_content, get_relevancy_scores
 from app.models.document import Document
 from typing import List
 import uuid
@@ -55,23 +55,55 @@ async def upload_embeddings_from_text_or_pdf(
 
 
 
-@router.post("/doc/embeddings/query")
+@router.post("/doc/embeddings/query/")
 async def query_doc_embeddings(request: QueryRequest):
     try:
         results = query_embeddings(request.query, request.top_k)
-        content = query_response_by_content({"query": request.query, "results": results})
         
-        # Get unique document names with scores above 0.29
-        sources = list(set(
-            result["document_name"] 
-            for result in results 
-            if result["score"] > 0.29
-        ))
+        # Get relevancy scores from LLM first
+        relevancy_scores = get_relevancy_scores(request.query, results)
+        
+        # Create a map of document names to their relevancy scores
+        score_map = {score["document_name"]: score["relevancy_score"] for score in relevancy_scores}
+        
+        # Filter results with non-zero relevancy scores
+        relevant_results = []
+        for result in results:
+            relevancy_score = score_map.get(result["document_name"], 0)
+            if relevancy_score > 0:
+                relevant_results.append({
+                    **result,
+                    "relevancy_score": relevancy_score
+                })
+        
+        if not relevant_results:
+            return {
+                "query": request.query,
+                "results": "No relevant documents found only ask questions about the document",
+                "embeddings": [],
+                "sources": []
+            }
+            
+        # Generate content only for relevant results
+        content = query_response_by_content({"query": request.query, "results": relevant_results})
+        
+        # Process sources with relevancy scores
+        sources = []
+        for result in relevant_results:
+            sources.append({
+                "docName": result["document_name"],
+                "relevancy": {
+                    "score": result["relevancy_score"],
+                    "embedding_score": round(result["score"] * 100, 2)
+                },
+                "content": result["text"],
+                "vector_id": result["vector_id"]
+            })
         
         return {
             "query": request.query, 
             "results": content, 
-            "embeddings": results,
+            "embeddings": relevant_results,
             "sources": sources
         }
     except Exception as e:
@@ -100,4 +132,27 @@ async def get_single_document_with_chunks(id: str):
     chunks = get_chunks_by_document_name(document["document_name"])
     document["chunks"] = chunks
     return Document(**document)
+
+@router.delete("/doc/document/{document_name}/")
+async def delete_document(document_name: str):
+    try:
+        # First delete from MongoDB
+        result = await documents_collection.delete_one({"document_name": document_name})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail=f"Document '{document_name}' not found in MongoDB")
+        
+        # Then delete from Pinecone
+        pinecone_success = delete_document_from_pinecone(document_name)
+        if not pinecone_success:
+            raise HTTPException(status_code=500, detail=f"Failed to delete document '{document_name}' from Pinecone")
+        
+        return {
+            "message": f"Document '{document_name}' successfully deleted from both MongoDB and Pinecone",
+            "mongo_deleted": True,
+            "pinecone_deleted": True
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     

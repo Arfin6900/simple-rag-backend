@@ -80,3 +80,23 @@ def get_chunks_by_document_name(document_name: str):
         }
         for match in response["matches"]
     ]
+
+def delete_document_from_pinecone(document_name: str) -> bool:
+    """
+    Delete all vectors associated with a document from Pinecone
+    Returns True if successful, False otherwise
+    """
+    try:
+        index = pc.Index(index_name)
+        # Get all vector IDs for the document
+        chunks = get_chunks_by_document_name(document_name)
+        vector_ids = [chunk["vector_id"] for chunk in chunks]
+        
+        if vector_ids:
+            # Delete all vectors associated with the document
+            index.delete(ids=vector_ids)
+        
+        return True
+    except Exception as e:
+        print(f"Error deleting document from Pinecone: {str(e)}")
+        return False
