@@ -154,20 +154,19 @@ async def query_doc_embeddings(request: QueryRequest):
             sources = []
             for result in relevant_results:
                 sources.append({
-                    "docName": result["document_name"],
-                    "relevancy": {
-                        "score": result["relevancy_score"],
-                        "embedding_score": round(result["score"] * 100, 2)
-                    },
+                    "id": result["vector_id"],
+                    "fileName": result["document_name"],
                     "content": result["text"],
-                    "vector_id": result["vector_id"]
+                    "relevance": result["relevancy_score"]
                 })
             
             response = {
-                "query": request.query, 
-                "results": content, 
-                "embeddings": relevant_results,
-                "sources": sources
+                "data": {
+                    "query": request.query, 
+                    "results": content, 
+                    "embeddings": relevant_results,
+                    "sources": sources
+                }
             }
 
         # Store the query in the database
@@ -178,7 +177,7 @@ async def query_doc_embeddings(request: QueryRequest):
             "document_name": request.document_name,
             "chat_room_id": request.chat_room_id,
             "timestamp": datetime.now(),
-            "response": response["results"],
+            "response": response["data"]["results"],
             "relevancy_scores": [{"document_name": r["document_name"], "score": r["relevancy_score"]} for r in relevant_results],
             "user_id": request.user_id
         }
@@ -186,15 +185,29 @@ async def query_doc_embeddings(request: QueryRequest):
 
         # If this is part of a chat room, also store it as a chat message
         if request.chat_room_id:
-            chat_message = {
+            # Store user message
+            user_message = {
                 "_id": str(uuid.uuid4()),
-                "chat_room_id": request.chat_room_id,
-                "query": request.query,
-                "response": response["results"],
+                "id": str(uuid.uuid4()),
+                "role": "user",
+                "content": request.query,
                 "timestamp": datetime.now(),
-                "relevancy_scores": [{"document_name": r["document_name"], "score": r["relevancy_score"]} for r in relevant_results]
+                "chat_room_id": request.chat_room_id,
+                "sources": None
             }
-            await chat_messages_collection.insert_one(chat_message)
+            await chat_messages_collection.insert_one(user_message)
+
+            # Store assistant message
+            assistant_message = {
+                "_id": str(uuid.uuid4()),
+                "id": str(uuid.uuid4()),
+                "role": "assistant",
+                "content": response["data"]["results"],
+                "timestamp": datetime.now(),
+                "chat_room_id": request.chat_room_id,
+                "sources": sources
+            }
+            await chat_messages_collection.insert_one(assistant_message)
 
         return response
     except HTTPException:
@@ -266,7 +279,7 @@ async def create_chat_room(request: ChatRoomRequest):
         
         chat_room_id = str(uuid.uuid4())
         chat_room = {
-            "_id": chat_room_id,
+            "id": chat_room_id,
             "name": request.name,
             "created_at": datetime.now(),
             "user_id": request.user_id,
@@ -285,13 +298,13 @@ async def create_chat_room(request: ChatRoomRequest):
 async def delete_chat_room(chat_room_id: str):
     try:
         # First check if chat room exists
-        chat_room = await chat_rooms_collection.find_one({"_id": chat_room_id})
+        chat_room = await chat_rooms_collection.find_one({"id": chat_room_id})
         if not chat_room:
             raise HTTPException(status_code=404, detail="Chat room not found")
         
         # Soft delete the chat room
         await chat_rooms_collection.update_one(
-            {"_id": chat_room_id},
+            {"id": chat_room_id},
             {"$set": {"is_active": False}}
         )
         
@@ -305,8 +318,9 @@ async def delete_chat_room(chat_room_id: str):
 async def get_chat_messages(chat_room_id: str):
     try:
         messages = []
-        async for message in chat_messages_collection.find({"chat_room_id": chat_room_id}).sort("timestamp", -1):
+        async for message in chat_messages_collection.find({"chat_room_id": chat_room_id}).sort("timestamp", 1):
             message["_id"] = str(message["_id"])
+            message["id"] = str(message["_id"])
             messages.append(ChatMessage(**message))
         return messages
     except Exception as e:
@@ -321,7 +335,7 @@ async def get_user_chat_rooms(user_id: Optional[str] = None):
             
         chat_rooms = []
         async for room in chat_rooms_collection.find(query).sort("created_at", -1):
-            room["_id"] = str(room["_id"])
+            room["id"] = str(room["_id"])
             chat_rooms.append(ChatRoom(**room))
         return chat_rooms
     except Exception as e:

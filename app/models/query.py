@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from bson import ObjectId
 from enum import Enum
 
@@ -15,7 +15,7 @@ class Query(BaseModel):
     chat_room_id: Optional[str] = None
     timestamp: datetime
     response: Optional[str] = None
-    relevancy_scores: Optional[List[dict]] = None
+    sources: Optional[List[dict]] = None
     user_id: Optional[str] = None
     
     class Config:
@@ -34,12 +34,13 @@ class ChatRoom(BaseModel):
         arbitrary_types_allowed = True
 
 class ChatMessage(BaseModel):
-    id: Optional[str] = None
-    chat_room_id: str
-    query: str
-    response: str
+    _id: Optional[str] = None
+    id: str
+    role: str
+    content: str
     timestamp: datetime
-    relevancy_scores: Optional[List[dict]] = None
+    chat_room_id: str
+    sources: Optional[List[Dict[str, Any]]] = None
     
     class Config:
         arbitrary_types_allowed = True 
