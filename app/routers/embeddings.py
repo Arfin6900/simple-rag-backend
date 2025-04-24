@@ -142,7 +142,9 @@ async def query_doc_embeddings(request: QueryRequest):
         if not relevant_results:
             response = {
                 "query": request.query,
-                "results": "No relevant documents found only ask questions about the document",
+                 "data":{
+                     "results": "No relevant documents found only ask questions about the document",
+                 },
                 "embeddings": [],
                 "sources": []
             }
@@ -168,7 +170,14 @@ async def query_doc_embeddings(request: QueryRequest):
                     "sources": sources
                 }
             }
-
+        sources = []
+        for result in relevant_results:
+            sources.append({
+                "id": result["vector_id"],
+                "fileName": result["document_name"],
+                "content": result["text"],
+                "relevance": result["relevancy_score"]
+            })
         # Store the query in the database
         query_id = str(uuid.uuid4())
         query_data = {
@@ -182,7 +191,7 @@ async def query_doc_embeddings(request: QueryRequest):
             "user_id": request.user_id
         }
         await queries_collection.insert_one(query_data)
-
+        print(f"query_data: {query_data}")
         # If this is part of a chat room, also store it as a chat message
         if request.chat_room_id:
             # Store user message
@@ -279,7 +288,7 @@ async def create_chat_room(request: ChatRoomRequest):
         
         chat_room_id = str(uuid.uuid4())
         chat_room = {
-            "id": chat_room_id,
+            "_id": chat_room_id,
             "name": request.name,
             "created_at": datetime.now(),
             "user_id": request.user_id,
